@@ -1,0 +1,380 @@
+# import requirements
+# local
+import time
+import math
+import random
+from datetime import datetime, timedelta
+
+# pywin23
+import win32gui
+import win32api
+import pyautogui
+# pywinauto
+from pywinauto import Application
+# pynput
+from pynput.mouse import Controller, Button
+
+# numpy
+import numpy as np
+
+# opencv-python
+import cv2
+
+BIAS = (-9, 42)  # distance from the top of the screen to that of the target window
+SCROLL_BIAS = 1.5  # pixel offset per scroll of the mouse wheel, with one time block as the standard
+BLOCK_DISTANCE = 50  # distance between the center points of two vertically / horizontally adjacent blocks
+
+
+class Coordinates:
+    def __init__(self, coord_dict: dict):
+        super().__init__()
+        for key, value in coord_dict.items():
+            # key: str, value: list[tuple, tuple] | tuple[int, int]
+            if 'check' in key:
+                coord_dict[key][0]: tuple[int, int] = self.to_relative(value[0])
+
+        self.coord_dict = coord_dict
+
+    @staticmethod
+    def to_relative(xy: tuple):
+        return xy[0] - BIAS[0], xy[1] - BIAS[1]
+
+    @staticmethod
+    def to_absolute(xy: tuple):
+        return xy[0] + BIAS[0], xy[1] + BIAS[1]
+
+    def __getitem__(self, item: str) -> tuple[int, int] | list[tuple[int, int], tuple[int, int, int]]:
+        return self.coord_dict[item]
+
+    def __setitem__(self, key, value):
+        # Handle item assignment
+        self.coord_dict[key] = value  # Store the value in the dictionary
+
+
+class Matcher:
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+
+    # @staticmethod
+    def color(self, xy: tuple, target_color: tuple) -> bool:
+        screen_shot = self.win.capture_as_image()
+        image = np.array(screen_shot)
+        pixel_color = image[xy[1], xy[0]]  # height=x, width=y
+        # cv2.imshow('img', image)
+        # cv2.waitKey(0)
+        if tuple(pixel_color) == target_color:
+            return True
+        return False
+
+    def image(self, template_path, threshold=0.9, scale_factor=0.9):
+        if template_path is None:
+            template_path = 'donate_tip.png'
+        template = cv2.imread(template_path)
+        target = self.win.capture_as_image()
+        target = np.array(target)
+        target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
+
+        w, h = template.shape[:2][::-1]
+        wh = (w, h)
+        scale = 1.0
+        matches = []
+
+        # while w > 30 and h > 30:  # 如果模板图像尺寸过小，则停止缩放
+        #     # 在目标图像中进行模板匹配
+        #     result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
+        #
+        #     # 找到匹配度大于 threshold 的位置
+        #     loc = np.where(result >= threshold)
+        #
+        #     # 记录匹配结果
+        #     if len(loc[0]) > 0:
+        #         matches.extend(list(zip(*loc[::-1])))
+        #
+        #     # 缩小模板图像
+        #     scale *= scale_factor
+        #     w = int(w * scale)
+        #     h = int(h * scale)
+        #     template = cv2.resize(template, (w, h))
+
+        if len(matches) > 0:
+            return matches
+        else:
+            result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(result >= threshold)
+            # for pt in zip(*loc[::-1]):  # loc[::-1] 转换成 (x, y) 格式
+            #     cv2.rectangle(target, pt, (pt[0] + w, pt[1] + h), (0, 255, 0), 2)
+            # cv2.imshow('Matches', target)
+            # cv2.waitKey(0)
+
+            if len(loc[0]) > 0:
+                # return [(pt[0] + w // 2, pt[1] + h // 2) for pt in zip(*loc[::-1])]
+                matches.extend(list(zip(*loc[::-1])))
+                return matches[0][0] + wh[0], matches[0][1] + wh[1]
+            else:
+                return
+
+
+class AutoSnatch:
+    def __init__(self, win, coord, campus, today_or_tomorrow, index, start_time, num, stake_out):
+        super().__init__()
+        self.win = win
+        self.c = coord
+        self.campus = campus
+        self.tot = today_or_tomorrow
+        self.idx = index
+        self.start_time = start_time
+        self.m = Matcher(win)
+        self.num = num
+        self.stake_out = stake_out
+        if campus == 'west':
+            if index > 8:
+                self.index = random.randint(1, 8)
+            self.index_untried = [1, 2, 3, 4, 5, 6, 7, 8]
+            self.x_bench = coord['w1_x'][0]
+        elif campus == 'east':
+            if index > 6:
+                index = random.randint(1, 6)
+            self.index_untried = [1, 2, 3, 4, 5, 6]
+            self.x_bench = coord['e1_x'][0]
+        else:
+            raise ValueError("Right now only support `west` or `east` for @param `campus`.")
+        self.index_untried.remove(index)
+
+    @property
+    def now(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    @staticmethod
+    def check_time():
+        now = datetime.now()
+        target_time = datetime.strptime(f"{now.date()} 21:00:01", "%Y-%m-%d %H:%M:%S")
+        if now >= target_time:
+            return True
+        else:
+            return False
+
+    def refresh(self):
+        if self.tot == 'tomorrow':
+            if not self.check_time():
+                print(f'{self.now}Waiting for 21:00!')
+                return False
+        print(f'{self.now} Snatching the No.{self.idx} court '
+              f'starting at {str(self.start_time)[:-2]}:{str(self.start_time)[-2:]} for {self.tot}...')
+
+        not_stop = True
+        while not_stop:
+            # click 'click appointment'
+            print(f'{self.now} Refreshing the page...')
+            pyautogui.click(x=self.c['click_appointment'][0], y=self.c['click_appointment'][1])
+            time.sleep(0.1)
+            while True:
+                pyautogui.click(x=self.c[self.campus][0], y=self.c[self.campus][1])
+                if self.m.color(self.c[self.campus + '_check'][0], self.c[self.campus + '_check'][1]):
+                    print(f'{self.now} Switched to {self.campus } campus.')
+                    pyautogui.click(x=self.c['companion'][0], y=self.c['companion'][1])
+                    while True:
+                        time.sleep(0.05)
+                        if self.m.color(self.c['companion_check'][0], self.c['companion_check'][1]):
+                            print(f'{self.now} The first default companion is locked.')
+                            break
+                        pyautogui.click(x=self.c['companion'][0], y=self.c['companion'][1])
+                    break
+
+            # chose today or tomorrow
+            if self.tot == 'today':
+                not_stop = False
+            while self.tot == 'tomorrow':
+                print(f'{self.now} Switching to `tomorrow`...')
+                pyautogui.click(self.c['tomorrow'][0], self.c['tomorrow'][1])
+                if self.m.color(self.c['tomorrow_check'][0], self.c['tomorrow_check'][1]):
+                    not_stop = False
+                    break
+                if self.m.color(self.c['tip_check'][0], self.c['tip_check'][1]):  #
+                    break
+        return True
+
+    def tot_time_conversion(self):
+        if self.tot == 'today':
+            now = datetime.now()
+            # now = datetime.strptime(f"{now.date()} 9:54:00", "%Y-%m-%d %H:%M:%S")
+            minute_block = np.array([0, 15, 30, 45, 60])
+            minute = now.minute - minute_block
+            minute = np.min(abs(minute[minute <= 0])).astype(float)
+            if now.minute + minute > 45:
+                minute = - now.minute
+            bench_time = now + timedelta(hours=1, minutes=minute, seconds=-now.second, microseconds=-now.microsecond)
+            start_time = str(self.start_time)
+            start_time = datetime.strptime(f"{now.date()} {start_time[:-2]}:{start_time[-2:]}:00", "%Y-%m-%d %H:%M:%S")
+            start_time = start_time - bench_time + datetime.strptime(f"{now.date()} 8:00:00", "%Y-%m-%d %H:%M:%S")
+            self.start_time = int(start_time.hour * 100 + start_time.minute)
+
+    def time2coord(self, start_time: int):
+        scroll_max = 15
+        period_min = 800
+        period_max = 2100
+        assert period_min <= start_time, "Earliest start time block is 9:00. (900)"
+        assert period_max >= start_time, "Latest start time block is 21:00. (2100)"
+        time_table = np.array([
+            900, 945, 1030, 1115,
+            1200, 1245, 1330, 1415,
+            1500, 1545, 1630, 1715,
+            1800, 1845, 1930, 2000,
+        ])
+
+        time_loc = start_time - time_table  # broadcasting
+        scroll = np.argmin(abs(time_loc))
+        diff = time_loc[scroll]
+        y_coord = self.c['bench_y'][1] - math.floor(scroll * SCROLL_BIAS)
+        if diff != 0 and diff != 100 and diff >= -45:
+            y_coord += (diff // 15) * BLOCK_DISTANCE
+        elif diff == 100:  # start_time = 2100
+            y_coord += 4 * BLOCK_DISTANCE
+        elif diff < -45:
+            diff += 40  # start_time = 800, 800 - 900 = -100 -> -60
+            y_coord += (diff // 15) * BLOCK_DISTANCE
+        return scroll, y_coord
+
+    def locate_patch_and_select(self, scroll, x, y):  # 1012, 826
+        # x = 1140  # east audience
+        # x = 1064  # east 6
+        # y = 947 - 42
+        mouse = Controller()
+        # move to start block
+        mouse.position = (x, y)
+        mouse.scroll(0, -scroll)
+        time.sleep(0.1)
+        if self.stake_out:
+            time.sleep(0.1)
+            if not self.m.color((x - 5, y - 5), (255, 255, 255)):
+                return False
+        # click start block
+        mouse.click(Button.left, 1)
+        time.sleep(0.1)
+        mouse.click(Button.left, 2)
+        time.sleep(0.1)
+
+        # click end block
+        mouse.position = (x, y + max(min(self.num - 1, 5), 1) * BLOCK_DISTANCE)
+        mouse.click(Button.left, 1)
+        time.sleep(0.1)
+        mouse.click(Button.left, 2)
+        # time.sleep(0.1)
+
+        mouse.position = self.c['submit_auto']  # todo: auto locate the submit button
+        # mouse.position = coord['submit_test']
+        mouse.click(Button.left, 1)
+        # pyautogui.leftClick(1194, 660)
+        return True
+
+    def find_submit_coord(self):
+        return self.m.image('submit_auto.png', 0.9)
+
+    def __call__(self):
+        self.tot_time_conversion()
+        scroll, y_coord = self.time2coord(self.start_time)  # calculating the corresponding scroll number and y_coord
+
+        cheat = True
+        while cheat:
+            start_time = time.perf_counter()
+
+            x_coord = self.x_bench + (self.idx - 1) * BLOCK_DISTANCE
+
+            if self.refresh():
+                time.sleep(0.1)
+                self.c['submit_auto'] = self.c.to_absolute(self.find_submit_coord())
+                result = self.locate_patch_and_select(scroll, x_coord, y_coord)
+                while result:
+                    time.sleep(0.5)
+                    if (
+                            self.m.color(self.c['tip_check'][0], self.c['tip_check'][1]) or
+                            self.m.color(self.c['tip2_check'][0], self.c['tip2_check'][1])
+                    ):
+                        try:
+                            self.idx = random.choice(self.index_untried)
+                            self.index_untried.remove(self.idx)
+                            print(f'{self.now} Trying court of No.{self.idx}...')
+                        except Exception as e:
+                            cheat = False
+                            print(f'{self.now} Try other time blocks.')
+                        break
+                    if not self.m.color(self.c['place_intro_check'][0], self.c['place_intro_check'][1]):
+                        cheat = False
+                        end_time = time.perf_counter()
+                        elapsed_time = end_time - start_time
+                        print(f'{self.now} Target time block is locked successfully within {elapsed_time:.3f} sec!')
+                        break
+                    if self.m.color(self.c['notice_check'][0], self.c['notice_check'][0]):
+                        while True:
+                            pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
+                            if not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]):
+                                time.sleep(0.5)
+                                break
+                        break
+
+def main(
+        coord: Coordinates,
+        campus: str,
+        today_or_tomorrow: str,
+        index: int,
+        start_time: int,
+        num: int,
+        stake_out: bool
+):
+    # get screen resolution
+    w, h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(0)
+
+    # get handle
+    hwnd = win32gui.FindWindow(None, '中国科大体育运动场馆预约')
+    l, t, r, b = win32gui.GetWindowRect(hwnd)
+
+    # win32gui.MoveWindow(hwnd, BIAS[0], BIAS[1], r - l, b - t, True)
+
+    # connect window
+    app = Application().connect(handle=hwnd)
+    window = app.window(handle=hwnd)
+    window.set_focus()
+
+    if l > 0:
+        pyautogui.hotkey('win', 'left')
+        # time.sleep(0.1)
+        # pyautogui.leftClick(34, 64)
+
+    auto_snatch = AutoSnatch(window, coord, campus, today_or_tomorrow, index, start_time, num, stake_out)
+
+    # grabbing
+    auto_snatch()
+
+
+if __name__ == '__main__':
+    c = Coordinates({
+        'click_appointment': (396, 823),
+        'place_intro_check': [(1208, 183), (0, 122, 51)],
+        'companion': (731, 1344),
+        'companion_check': [(809, 1373), (2, 125, 254)],
+        'submit': (936, 1550),
+        'submit_3': (936, 1710),  # 2 lines companion
+        'submit_0': (936, 1550),  # 1 line companion
+        'submit_lja': (936, 1630),  # lja
+        'submit_djy': (936, 1957),  # djy
+        # 'submit1_check': (726, 1552),
+        'submit_auto': (0, 0),
+        'submit_test': (936, 1386),  # only used when selecting audience block
+        'east': (719, 360),
+        'east_check': [(666, 360), (116, 183, 140)],
+        'middle': (870, 360),
+        'west': (1014, 360),
+        'west_check': [(1063, 360), (116, 183, 140)],
+        'high_tech': (1146, 360),
+        'today': (846, 422),
+        'tomorrow': (1111, 424),
+        'tomorrow_check': [(1139, 423), (116, 183, 140)],
+        'notice': (536, 1190),
+        'notice_check': [(536, 1190), (12, 193, 96)],
+        'w1_x': (774, 748),
+        'e1_x': (817, 530),
+        'tip_check': [(1065, 1760), (76, 76, 76)],  # at least 2 blocks
+        'tip2_check': [(932, 1774), (73, 73, 73)],
+        'bench_y': (925, 730)
+    })
+    main(c, 'west', 'tomorrow', 8, 1800, 6, False)
