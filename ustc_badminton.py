@@ -70,8 +70,6 @@ class Matcher:
         return False
 
     def image(self, template_path, threshold=0.9, scale_factor=0.9):
-        if template_path is None:
-            template_path = 'donate_tip.png'
         template = cv2.imread(template_path)
         target = self.win.capture_as_image()
         target = np.array(target)
@@ -103,16 +101,19 @@ class Matcher:
             return matches
         else:
             result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(result >= threshold)
+            max_loc = np.unravel_index(np.argmax(result), result.shape)
+            loc = np.where(result[max_loc] >= threshold)
             # for pt in zip(*loc[::-1]):  # loc[::-1] 转换成 (x, y) 格式
             #     cv2.rectangle(target, pt, (pt[0] + w, pt[1] + h), (0, 255, 0), 2)
             # cv2.imshow('Matches', target)
             # cv2.waitKey(0)
 
-            if len(loc[0]) > 0:
+            if loc == ([0],):
                 # return [(pt[0] + w // 2, pt[1] + h // 2) for pt in zip(*loc[::-1])]
-                matches.extend(list(zip(*loc[::-1])))
-                return matches[0][0] + wh[0], matches[0][1] + wh[1]
+                matches.extend(max_loc[::-1])
+                # matches.extend(list(zip(*loc[::-1])))
+                return matches[0] + wh[0], matches[1] + wh[1]
+                # return matches[0][0] + wh[0], matches[0][1] + wh[1]
             else:
                 return
 
@@ -157,6 +158,9 @@ class AutoSnatch:
             return False
 
     def refresh(self):
+        """
+        Click the `appointment` button, select the companion and switch to `tomorrow` or not.
+        """
         if self.tot == 'tomorrow':
             if not self.check_time():
                 print(f'{self.now}Waiting for 21:00!')
@@ -197,6 +201,9 @@ class AutoSnatch:
         return True
 
     def tot_time_conversion(self):
+        """
+        Convert today's start_time to equivalent standard start_time.
+        """
         if self.tot == 'today':
             now = datetime.now()
             # now = datetime.strptime(f"{now.date()} 9:54:00", "%Y-%m-%d %H:%M:%S")
@@ -212,6 +219,9 @@ class AutoSnatch:
             self.start_time = int(start_time.hour * 100 + start_time.minute)
 
     def time2coord(self, start_time: int):
+        """
+        Produce the corresponding scroll numbers and y_coord through computing the loc of start_time block.
+        """
         scroll_max = 15
         period_min = 800
         period_max = 2100
@@ -238,6 +248,9 @@ class AutoSnatch:
         return scroll, y_coord
 
     def locate_patch_and_select(self, scroll, x, y):  # 1012, 826
+        """
+        Select aimed blocks and submit.
+        """
         # x = 1140  # east audience
         # x = 1064  # east 6
         # y = 947 - 42
@@ -270,7 +283,7 @@ class AutoSnatch:
         return True
 
     def find_submit_coord(self):
-        return self.m.image('submit_auto.png', 0.9)
+        return self.m.image('./ustc_badminton/submit_auto.png', 0.9)
 
     def __call__(self):
         self.tot_time_conversion()
@@ -280,7 +293,7 @@ class AutoSnatch:
         while cheat:
             start_time = time.perf_counter()
 
-            x_coord = self.x_bench + (self.idx - 1) * BLOCK_DISTANCE
+            x_coord = self.x_bench + (self.idx - 1) * BLOCK_DISTANCE  # locate the index
 
             if self.refresh():
                 time.sleep(0.1)
@@ -379,4 +392,4 @@ if __name__ == '__main__':
         'tip2_check': [(932, 1774), (73, 73, 73)],
         'bench_y': (925, 730)
     })
-    main(c, 'west', 'tomorrow', 8, 2030, 6, False)
+    main(c, 'west', 'tomorrow', 1, 1830, 6, False)
