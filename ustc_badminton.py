@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 # pywin23
 import win32gui
 import win32api
+
+# pyautogui
 import pyautogui
 # pywinauto
 from pywinauto import Application
@@ -20,7 +22,7 @@ import numpy as np
 # opencv-python
 import cv2
 
-BIAS = (-9, 42)  # distance from the top of the screen to that of the target window
+BIAS = (-9, 42)  # distance from the top-left of the screen to that of the target window
 SCROLL_BIAS = 1.5  # pixel offset per scroll of the mouse wheel, with one time block as the standard
 BLOCK_DISTANCE = 50  # distance between the center points of two vertically / horizontally adjacent blocks
 
@@ -349,18 +351,18 @@ def main(
 if __name__ == '__main__':
     c = Coordinates({
         'click_appointment': (396, 823),
-        'place_intro_check': [(1208, 183), (0, 122, 51)],
-        'companion': (731, 1344),
-        'companion_check': [(809, 1373), (2, 125, 254)],
+        'place_intro_check': [(1208, 183), (0, 122, 51)],  # place introduction
+        'companion': (731, 1344),  # default companion
+        'companion_check': [(809, 1373), (2, 125, 254)],  # selected companion
         'submit': (936, 1550),
         'submit_3': (936, 1710),  # 2 lines companion
         'submit_0': (936, 1550),  # 1 line companion
         'submit_lja': (936, 1630),  # lja
         'submit_djy': (936, 1957),  # djy
         # 'submit1_check': (726, 1552),
-        'submit_auto': (0, 0),
+        'submit_auto': (0, 0),  # auto detect the `submit` button
         'submit_test': (936, 1386),  # only used when selecting audience block
-        'east': (719, 360),
+        'east': (719, 360),  # `east campus` button
         'east_check': [(666, 360), (116, 183, 140)],
         'middle': (870, 360),
         'west': (1014, 360),
@@ -370,11 +372,11 @@ if __name__ == '__main__':
         'tomorrow': (1111, 424),
         'tomorrow_check': [(1139, 423), (116, 183, 140)],
         'notice': (536, 1190),
-        'notice_check': [(536, 1190), (12, 193, 96)],
-        'w1_x': (774, 748),
-        'e1_x': (817, 530),
+        'notice_check': [(536, 1190), (12, 193, 96)],  # you are banned
+        'w1_x': (774, 748),  # the coordinate of the first time block on the left in `west` campus, only use the `x`
+        'e1_x': (817, 530),  # first x on the left in `east` campus
         'tip_check': [(1065, 1760), (76, 76, 76)],  # at least 2 blocks
         'tip2_check': [(932, 1774), (73, 73, 73)],
         'bench_y': (925, 730)
     })
-    main(c, 'west', 'tomorrow', 8, 1800, 6, False)
+    main(c, 'west', 'tomorrow', 8, 2030, 6, False)
