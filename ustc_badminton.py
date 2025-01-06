@@ -59,15 +59,17 @@ class Matcher:
         self.win = win
 
     # @staticmethod
-    def color(self, xy: tuple, target_color: tuple) -> bool:
+    def color(self, xy: tuple, target_color: tuple, threshold: float = 0.9) -> bool:
         screen_shot = self.win.capture_as_image()
         image = np.array(screen_shot)
         pixel_color = image[xy[1], xy[0]]  # height=x, width=y
-        # cv2.imshow('img', image)
-        # cv2.waitKey(0)
-        if tuple(pixel_color) == target_color:
+        color_dist = np.linalg.norm(np.array(pixel_color) - np.array(target_color))
+        max_dist = 441.67
+        similarity = 1 - (color_dist / max_dist)
+        if similarity >= threshold:
             return True
-        return False
+        else:
+            return False
 
     def image(self, template_path, threshold=0.9, scale_factor=0.9):
         template = cv2.imread(template_path)
