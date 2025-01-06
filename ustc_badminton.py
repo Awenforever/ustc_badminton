@@ -80,29 +80,35 @@ class Matcher:
         scale = 1.0
         matches = []
 
-        # while w > 30 and h > 30:  # 如果模板图像尺寸过小，则停止缩放
-        #     # 在目标图像中进行模板匹配
-        #     result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
-        #
-        #     # 找到匹配度大于 threshold 的位置
-        #     loc = np.where(result >= threshold)
-        #
-        #     # 记录匹配结果
-        #     if len(loc[0]) > 0:
-        #         matches.extend(list(zip(*loc[::-1])))
-        #
-        #     # 缩小模板图像
-        #     scale *= scale_factor
-        #     w = int(w * scale)
-        #     h = int(h * scale)
-        #     template = cv2.resize(template, (w, h))
+        while w > 15 and h > 15:
+            # match
+            result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
+
+            # filter
+            max_loc = np.unravel_index(np.argmax(result), result.shape)
+            loc = np.where(np.atleast_1d(result[max_loc]) >= threshold)
+
+            # result
+            if loc == ([0],):
+                matches.extend(max_loc[::-1])
+                break
+
+            # resize the template image
+            scale *= scale_factor
+            w = int(w * scale)
+            h = int(h * scale)
+            template = cv2.resize(template, (w, h))
 
         if len(matches) > 0:
-            return matches
+            # for pt in zip(*loc[::-1]):  # loc[::-1] 转换成 (x, y) 格式
+            #     cv2.rectangle(target, pt, (pt[0] + w, pt[1] + h), (0, 255, 0), 2)
+            # cv2.imshow('Matches', target)
+            # cv2.waitKey(0)
+            return matches[0] + wh[0], matches[1] + wh[1]
         else:
             result = cv2.matchTemplate(target, template, cv2.TM_CCOEFF_NORMED)
             max_loc = np.unravel_index(np.argmax(result), result.shape)
-            loc = np.where(result[max_loc] >= threshold)
+            loc = np.where(np.atleast_1d(result[max_loc]) >= threshold)
             # for pt in zip(*loc[::-1]):  # loc[::-1] 转换成 (x, y) 格式
             #     cv2.rectangle(target, pt, (pt[0] + w, pt[1] + h), (0, 255, 0), 2)
             # cv2.imshow('Matches', target)
@@ -151,7 +157,7 @@ class AutoSnatch:
     @staticmethod
     def check_time():
         now = datetime.now()
-        target_time = datetime.strptime(f"{now.date()} 21:00:01", "%Y-%m-%d %H:%M:%S")
+        target_time = datetime.strptime(f"{now.date()} 21:00:02", "%Y-%m-%d %H:%M:%S")
         if now >= target_time:
             return True
         else:
@@ -163,7 +169,7 @@ class AutoSnatch:
         """
         if self.tot == 'tomorrow':
             if not self.check_time():
-                print(f'{self.now}Waiting for 21:00!')
+                print(f'{self.now} Waiting for 21:00!')
                 return False
         print(f'{self.now} Snatching the No.{self.idx} court '
               f'starting at {str(self.start_time)[:-2]}:{str(self.start_time)[-2:]} for {self.tot}...')
@@ -225,8 +231,8 @@ class AutoSnatch:
         scroll_max = 15
         period_min = 800
         period_max = 2100
-        assert period_min <= start_time, "Earliest start time block is 9:00. (900)"
-        assert period_max >= start_time, "Latest start time block is 21:00. (2100)"
+        assert period_min <= start_time, f"Earliest start time block is 9:00. (900), got {start_time}."
+        assert period_max >= start_time, f"Latest start time block is 21:00. (2100), got {start_time}."
         time_table = np.array([
             900, 945, 1030, 1115,
             1200, 1245, 1330, 1415,
@@ -266,8 +272,9 @@ class AutoSnatch:
         # click start block
         mouse.click(Button.left, 1)
         time.sleep(0.1)
-        mouse.click(Button.left, 2)
+        mouse.click(Button.left, 1)
         time.sleep(0.1)
+        mouse.click(Button.left, 1)
 
         # click end block
         mouse.position = (x, y + max(min(self.num - 1, 5), 1) * BLOCK_DISTANCE)
@@ -283,7 +290,7 @@ class AutoSnatch:
         return True
 
     def find_submit_coord(self):
-        return self.m.image('./ustc_badminton/submit_auto.png', 0.9)
+        return self.m.image('submit_auto.png', 0.9)  # todo: check this !!!
 
     def __call__(self):
         self.tot_time_conversion()
@@ -319,10 +326,12 @@ class AutoSnatch:
                         elapsed_time = end_time - start_time
                         print(f'{self.now} Target time block is locked successfully within {elapsed_time:.3f} sec!')
                         break
-                    if self.m.color(self.c['notice_check'][0], self.c['notice_check'][0]):
+                    if (self.m.color(self.c['notice_check'][0], self.c['notice_check'][0]) or
+                            self.m.color(self.c['intercepted_check'][0], self.c['intercepted_check'][1])):
                         while True:
                             pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
-                            if not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]):
+                            if (not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) and
+                            not self.m.color(self.c['intercepted_check'][0], self.c['intercepted_check'][1])):
                                 time.sleep(0.5)
                                 break
                         break
@@ -386,10 +395,11 @@ if __name__ == '__main__':
         'tomorrow_check': [(1139, 423), (116, 183, 140)],
         'notice': (536, 1190),
         'notice_check': [(536, 1190), (12, 193, 96)],  # you are banned
+        'intercepted_check': [(550, 1193), (89, 206, 169)],
         'w1_x': (774, 748),  # the coordinate of the first time block on the left in `west` campus, only use the `x`
         'e1_x': (817, 530),  # first x on the left in `east` campus
         'tip_check': [(1065, 1760), (76, 76, 76)],  # at least 2 blocks
         'tip2_check': [(932, 1774), (73, 73, 73)],
         'bench_y': (925, 730)
     })
-    main(c, 'west', 'tomorrow', 1, 1830, 6, False)
+    main(c, 'west', 'tomorrow', 1, 1930, 6, False)
