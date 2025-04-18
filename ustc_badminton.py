@@ -22,6 +22,10 @@ import numpy as np
 # opencv-python
 import cv2
 
+# loguru
+from loguru import logger
+
+
 BIAS = (-9, 42)  # distance from the top-left of the screen to that of the target window
 SCROLL_BIAS = 1.5  # pixel offset per scroll of the mouse wheel, with one time block as the standard
 BLOCK_DISTANCE = 50  # distance between the center points of two vertically / horizontally adjacent blocks
@@ -122,8 +126,6 @@ class Matcher:
                 # matches.extend(list(zip(*loc[::-1])))
                 return matches[0] + wh[0], matches[1] + wh[1]
                 # return matches[0][0] + wh[0], matches[0][1] + wh[1]
-            else:
-                return
 
 
 class AutoSnatch:
@@ -159,7 +161,7 @@ class AutoSnatch:
     @staticmethod
     def check_time():
         now = datetime.now()
-        target_time = datetime.strptime(f"{now.date()} 21:00:02", "%Y-%m-%d %H:%M:%S")
+        target_time = datetime.strptime(f"{now.date()} 21:00:01", "%Y-%m-%d %H:%M:%S")
         if now >= target_time:
             return True
         else:
@@ -171,35 +173,34 @@ class AutoSnatch:
         """
         if self.tot == 'tomorrow':
             if not self.check_time():
-                print(f'{self.now} Waiting for 21:00!')
+                logger.info(f'Waiting for 21:00!')
                 return False
-        print(f'{self.now} Snatching the No.{self.idx} court '
+        logger.info(f'Snatching the No.{self.idx} court '
               f'starting at {str(self.start_time)[:-2]}:{str(self.start_time)[-2:]} for {self.tot}...')
 
         not_stop = True
         while not_stop:
             # click 'click appointment'
-            print(f'{self.now} Refreshing the page...')
+            logger.info(f'Refreshing the page...')
             pyautogui.click(x=self.c['click_appointment'][0], y=self.c['click_appointment'][1])
             time.sleep(0.1)
             while True:
                 pyautogui.click(x=self.c[self.campus][0], y=self.c[self.campus][1])
                 if self.m.color(self.c[self.campus + '_check'][0], self.c[self.campus + '_check'][1]):
-                    print(f'{self.now} Switched to {self.campus } campus.')
-                    pyautogui.click(x=self.c['companion'][0], y=self.c['companion'][1])
+                    logger.info(f'Switched to {self.campus } campus.')
                     while True:
-                        time.sleep(0.05)
                         if self.m.color(self.c['companion_check'][0], self.c['companion_check'][1]):
-                            print(f'{self.now} The first default companion is locked.')
+                            logger.warning(f'The first default companion is locked.')
                             break
                         pyautogui.click(x=self.c['companion'][0], y=self.c['companion'][1])
+                        time.sleep(0.1)
                     break
 
             # chose today or tomorrow
             if self.tot == 'today':
                 not_stop = False
             while self.tot == 'tomorrow':
-                print(f'{self.now} Switching to `tomorrow`...')
+                logger.info(f'Switching to `tomorrow`...')
                 pyautogui.click(self.c['tomorrow'][0], self.c['tomorrow'][1])
                 if self.m.color(self.c['tomorrow_check'][0], self.c['tomorrow_check'][1]):
                     not_stop = False
@@ -214,13 +215,15 @@ class AutoSnatch:
         """
         if self.tot == 'today':
             now = datetime.now()
-            # now = datetime.strptime(f"{now.date()} 9:54:00", "%Y-%m-%d %H:%M:%S")
+            # now = datetime.strptime(f"{now.date()} 11:40:00", "%Y-%m-%d %H:%M:%S")
             minute_block = np.array([0, 15, 30, 45, 60])
             minute = now.minute - minute_block
             minute = np.min(abs(minute[minute <= 0])).astype(float)
+            hours = 0
             if now.minute + minute > 45:
+                hours = 1
                 minute = - now.minute
-            bench_time = now + timedelta(hours=1, minutes=minute, seconds=-now.second, microseconds=-now.microsecond)
+            bench_time = now + timedelta(hours=hours, minutes=minute, seconds=-now.second, microseconds=-now.microsecond)
             start_time = str(self.start_time)
             start_time = datetime.strptime(f"{now.date()} {start_time[:-2]}:{start_time[-2:]}:00", "%Y-%m-%d %H:%M:%S")
             start_time = start_time - bench_time + datetime.strptime(f"{now.date()} 8:00:00", "%Y-%m-%d %H:%M:%S")
@@ -259,6 +262,7 @@ class AutoSnatch:
         """
         Select aimed blocks and submit.
         """
+        logger.info('Locating time blocks ...')
         # x = 1140  # east audience
         # x = 1064  # east 6
         # y = 947 - 42
@@ -266,25 +270,29 @@ class AutoSnatch:
         # move to start block
         mouse.position = (x, y)
         mouse.scroll(0, -scroll)
-        time.sleep(0.1)
+        time.sleep(0.5)
         if self.stake_out:
             time.sleep(0.1)
             if not self.m.color((x - 5, y - 5), (255, 255, 255)):
                 return False
+
+        logger.info('Selecting ...')
         # click start block
         mouse.click(Button.left, 1)
-        time.sleep(0.1)
-        mouse.click(Button.left, 1)
-        time.sleep(0.1)
-        mouse.click(Button.left, 1)
+        time.sleep(0.5)
+        # mouse.click(Button.left, 1)
+        # time.sleep(0.1)
+        # mouse.click(Button.left, 1)
 
         # click end block
         mouse.position = (x, y + max(min(self.num - 1, 5), 1) * BLOCK_DISTANCE)
-        mouse.click(Button.left, 1)
         time.sleep(0.1)
-        mouse.click(Button.left, 2)
+        mouse.click(Button.left, 1)
+        time.sleep(0.5)
+        # mouse.click(Button.left, 1)
         # time.sleep(0.1)
 
+        logger.info('Submitting ...')
         mouse.position = self.c['submit_auto']  # todo: auto locate the submit button
         # mouse.position = coord['submit_test']
         mouse.click(Button.left, 1)
@@ -317,18 +325,18 @@ class AutoSnatch:
                         try:
                             self.idx = random.choice(self.index_untried)
                             self.index_untried.remove(self.idx)
-                            print(f'{self.now} Trying court of No.{self.idx}...')
+                            logger.info(f'Trying court of No.{self.idx}...')
                         except Exception as e:
                             cheat = False
-                            print(f'{self.now} Try other time blocks.')
+                            logger.info(f'Try other time blocks.')
                         break
                     if not self.m.color(self.c['place_intro_check'][0], self.c['place_intro_check'][1]):
                         cheat = False
                         end_time = time.perf_counter()
                         elapsed_time = end_time - start_time
-                        print(f'{self.now} Target time block is locked successfully within {elapsed_time:.3f} sec!')
+                        logger.critical(f'Target time block is locked successfully within {elapsed_time:.3f} sec!')
                         break
-                    if (self.m.color(self.c['notice_check'][0], self.c['notice_check'][0]) or
+                    if (self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) or
                             self.m.color(self.c['intercepted_check'][0], self.c['intercepted_check'][1])):
                         while True:
                             pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
@@ -363,8 +371,8 @@ def main(
 
     if l > 0:
         pyautogui.hotkey('win', 'left')
-        # time.sleep(0.1)
-        # pyautogui.leftClick(34, 64)
+        time.sleep(0.1)
+        pyautogui.leftClick(34, 64)
 
     auto_snatch = AutoSnatch(window, coord, campus, today_or_tomorrow, index, start_time, num, stake_out)
 
@@ -404,4 +412,5 @@ if __name__ == '__main__':
         'tip2_check': [(932, 1774), (73, 73, 73)],
         'bench_y': (925, 730)
     })
-    main(c, 'west', 'tomorrow', 1, 1930, 6, False)
+    main(c, 'west', 'tomorrow', 1, 2000, 6, False)
+    # check if network's environment is normal
