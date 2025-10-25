@@ -9,7 +9,7 @@ import ctypes
 from ctypes import wintypes
 # from typing import List
 
-# pywin23
+# pywin32
 import win32gui
 # import win32api
 
@@ -24,12 +24,11 @@ from pynput.mouse import Controller, Button
 # numpy
 import numpy as np
 
-# opencv-python
+# opencv
 import cv2
 
 # loguru
 # from loguru import logger
-
 
 BIAS = (-9, 42)  # distance from the top-left of the screen to that of the target window
 UNIT_SCROLL_DISTANCE = 150

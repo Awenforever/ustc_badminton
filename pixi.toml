@@ -1,0 +1,16 @@
+[workspace]
+authors = ["Ahuiforever <king_wedo@163.com>"]
+channels = ["conda-forge"]
+name = "USTCBadminton"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+pywin32 = ">=311,<312"
+pyautogui = ">=0.9.54,<0.10"
+pynput = ">=1.8.1,<2"
+numpy = ">=2.3.4,<3"
+opencv = ">=4.12.0,<5"
+pyside2 = ">=5.15.15,<6"
