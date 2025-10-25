@@ -5,6 +5,7 @@ from PySide2.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QTabBar, QPushButton, QGridLayout, QLabel, QFrame, QButtonGroup,
                                QTextBrowser, QScrollArea)
 from PySide2.QtWidgets import QGraphicsDropShadowEffect
+from PySide2.QtCore import QCoreApplication
 
 
 class RoundedButton(QPushButton):
@@ -754,6 +755,8 @@ class SportsFieldBooking(QMainWindow):
 
 
 def main():
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
     app = QApplication(sys.argv)
 
     # 设置应用字体
