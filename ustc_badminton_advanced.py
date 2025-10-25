@@ -196,8 +196,9 @@ class AutoSnatch:
     @staticmethod
     def check_time():
         now = datetime.now()
-        target_time = datetime.strptime(f"{now.date()} 21:00:01", "%Y-%m-%d %H:%M:%S")
+        target_time = datetime.strptime(f"{now.date()} 21:00:00", "%Y-%m-%d %H:%M:%S")
         if now >= target_time:
+            time.sleep(0.2)
             return True
         else:
             return False
@@ -459,8 +460,8 @@ def main(
     auto_snatch()
 
 
-if __name__ == '__main__':
-    c = Coordinates({
+def get_coordinates():
+    return Coordinates({
         'click_appointment': (396, 823),
         'place_intro_check': [(1208, 183), (0, 122, 51)],  # place introduction
         'companion': (731, 1344),  # default companion
@@ -491,5 +492,17 @@ if __name__ == '__main__':
         'middle_lt': (774, 530),
         'high_tech_lt': (774, 530),
     })
-    main(c, (2, 1), 'middle', 'tomorrow', 12, '2030', 6, False)
+
+
+if __name__ == '__main__':
+    main(
+        get_coordinates(),
+        (2, 1),
+        'middle',
+        'today',
+        12,
+        '1230',
+        6,
+        False
+    )
     # check if network environment is normal

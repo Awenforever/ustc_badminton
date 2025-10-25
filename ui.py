@@ -7,6 +7,7 @@ from PySide2.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from PySide2.QtWidgets import QGraphicsDropShadowEffect
 from PySide2.QtCore import QCoreApplication
 
+import ustc_badminton_advanced
 
 class RoundedButton(QPushButton):
     def __init__(self, text, parent=None):
@@ -750,6 +751,7 @@ class SportsFieldBooking(QMainWindow):
         self.log_message("Processing reservation...")  # 英文
 
         # 您的业务逻辑
+
         # 在处理的关键步骤添加日志
         self.log_message("Reservation successful!")  # 英文
 
