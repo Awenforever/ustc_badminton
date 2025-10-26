@@ -16,7 +16,7 @@ from PySide2.QtWidgets import QGraphicsDropShadowEffect
 from PySide2.QtCore import QCoreApplication
 
 # runtime
-from ustc_badminton_advanced import *
+from ustc_badminton_v2 import *
 
 
 class Lockable:

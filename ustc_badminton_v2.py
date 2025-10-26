@@ -1,12 +1,12 @@
 # import requirements
 # local
-import logging
+# import logging
 import time
-import math
+# import math
 import random
 from datetime import datetime, timedelta
-import ctypes
-from ctypes import wintypes
+# import ctypes
+# from ctypes import wintypes
 from typing import Callable
 
 # pywin32
@@ -18,6 +18,8 @@ import pyautogui
 
 # pywinauto
 from pywinauto import Application
+from pywinauto.application import WindowSpecification
+
 # pynput
 from pynput.mouse import Controller, Button
 
@@ -59,7 +61,6 @@ BLOCK_DISTANCE = 50  # distance between the center points of two vertically / ho
 
 class Coordinates:
     def __init__(self, coord_dict: dict):
-        super().__init__()
         for key, value in coord_dict.items():
             # key: str, value: list[tuple, tuple] | tuple[int, int]
             if 'check' in key:
@@ -82,32 +83,27 @@ class Coordinates:
         # Handle item assignment
         self.coord_dict[key] = value  # Store the value in the dictionary
 
+
 class Matcher:
     def __init__(self, win):
-        super().__init__()
         self.win = win
 
-    # @staticmethod
     def color(self, xy: tuple, target_color: tuple, threshold: float = 0.9) -> bool:
         screen_shot = self.win.capture_as_image()
         image = np.array(screen_shot)
         pixel_color = image[xy[1], xy[0]]  # height=x, width=y
-        color_dist = np.linalg.norm(np.array(pixel_color) - np.array(target_color))
+        color_dist = float(np.linalg.norm(np.array(pixel_color) - np.array(target_color)))
         max_dist = 441.67
-        similarity = 1 - (color_dist / max_dist)
-        if similarity >= threshold:
-            return True
-        else:
-            return False
+        similarity = 1. - (color_dist / max_dist)
+        return similarity >= threshold
 
-    def image(self, template_path, threshold=0.9, scale_factor=0.9):
+    def image(self, template_path: str, threshold: float = 0.9, scale_factor: float = 0.9):
         template = cv2.imread(template_path)
         target = self.win.capture_as_image()
         target = np.array(target)
         target = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
 
-        w, h = template.shape[:2][::-1]
-        wh = (w, h)
+        wh = (w, h) = template.shape[:2][::-1]
         scale = 1.0
         matches = []
 
@@ -168,7 +164,7 @@ class Place:
         self.log = log_func
 
     @staticmethod
-    def idx_list(num: int, pop_idx: int):
+    def generate_idx_list(num: int, pop_idx: int):
         il = [i for i in range(1, num + 1)]
         il.remove(pop_idx)
         return il
@@ -180,17 +176,28 @@ class Place:
             raise KeyError("Right now only support `west`, `east`, `middle`, and `hightech` for @param `campus`.")
         if not self.idx <= max_idx:
             self.idx = 1
-        self.index_untried = self.idx_list(max_idx, self.idx)
+        self.index_untried = self.generate_idx_list(max_idx, self.idx)
 
     def update(self):
         self.idx = random.choice(self.index_untried)
         self.index_untried.remove(self.idx)
-        self.log(f'[{AutoSnatch.now()}] Trying court No.{self.idx}...')
+        self.log(f'Trying court No.{self.idx}...')
 
 
 class AutoSnatch:
-    def __init__(self, win, coord, companion, campus, today_or_tomorrow, index, start_time, num, stake_out, log_func: Callable):
-        super().__init__()
+    def __init__(
+            self,
+            win: WindowSpecification,
+            coord: Coordinates,
+            companion: tuple[int, int],
+            campus: str,
+            today_or_tomorrow: str,
+            index: int,
+            start_time: str,
+            num: int,
+            stake_out: bool,
+            log_func: Callable
+    ):
         self.win = win
         self.c = coord
         self.tot = today_or_tomorrow
@@ -202,6 +209,7 @@ class AutoSnatch:
         self.campus.initialize()
         self.find_companion_coord(companion)
         self.log = log_func
+        self.logged_once = False
 
     @staticmethod
     def now() -> str:
@@ -209,13 +217,10 @@ class AutoSnatch:
 
     @staticmethod
     def check_time():
+        time.sleep(0.01)
         now = datetime.now()
-        target_time = datetime.strptime(f"{now.date()} 21:00:00", "%Y-%m-%d %H:%M:%S")
-        if now >= target_time:
-            time.sleep(0.2)
-            return True
-        else:
-            return False
+        target_time = datetime.strptime(f"{now.date()} 21:00:00", "%Y-%m-%d %H:%M:%S") + timedelta(milliseconds=500)
+        return now >= target_time
 
     def refresh(self):
         """
@@ -223,10 +228,12 @@ class AutoSnatch:
         """
         if self.tot == 'tomorrow':
             if not self.check_time():
-                self.log(f'Waiting for 21:00!')
+                if not self.logged_once:
+                    self.log('Waiting for 21:00:00:500!')
+                    self.logged_once = True
                 return False
         self.log(f'Snatching the No.{self.campus.idx} court '
-              f'starting at {self.start_time[:-2]}:{self.start_time[-2:]} for {self.tot}...')
+                 f'starting at {self.start_time[:-2]}:{self.start_time[-2:]} for {self.tot}...')
 
         not_stop = True
         while not_stop:
@@ -385,12 +392,10 @@ class AutoSnatch:
             )
 
     def __call__(self) -> bool:
-        # self.tot_time_conversion()
-        y_scroll, y_coord = self.time2y(self.start_time)  # calculating the corresponding scroll number and y_coord
         start_time = time.perf_counter()
-        # todo: self.shift is not updated for every loop || fixed √
-        # x_coord = self.campus.x_bench + (self.campus.idx - 1) * BLOCK_DISTANCE  # locate the index
         x_scroll, x_coord = self.index2x(self.campus.idx)
+        y_scroll, y_coord = self.time2y(self.start_time)  # calculating the corresponding scroll number and y_coord
+        # todo: self.shift is not updated for every loop || fixed √
         if self.refresh():
             time.sleep(0.1)
             self.c['submit_auto'] = self.c.to_absolute(self.find_submit_coord())
@@ -418,13 +423,13 @@ class AutoSnatch:
                         self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])
                 ):
                     self.log(f'Your account is banned, or the selected blocks have been locked by others,'
-                          f'or the locked companion is occupied.')
+                             f'or the locked companion is occupied.')
                     while True:
                         pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
                         time.sleep(0.1)
                         pyautogui.leftClick(x=self.c['preempted'][0], y=self.c['preempted'][1])
                         if (not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) and
-                        not self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])):
+                                not self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])):
                             time.sleep(0.5)
                             break
                     try:
