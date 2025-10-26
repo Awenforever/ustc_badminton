@@ -7,7 +7,7 @@ import random
 from datetime import datetime, timedelta
 import ctypes
 from ctypes import wintypes
-# from typing import List
+from typing import Callable
 
 # pywin32
 import win32gui
@@ -27,8 +27,20 @@ import numpy as np
 # opencv
 import cv2
 
+# rich
+from rich import print
+
 # loguru
 # from loguru import logger
+
+__all__ = [
+    'get_coordinates',
+    'AutoSnatch',
+    'win32gui',
+    'Application',
+    'pyautogui',
+    'time'
+]
 
 BIAS = (-9, 42)  # distance from the top-left of the screen to that of the target window
 UNIT_SCROLL_DISTANCE = 150
@@ -143,16 +155,17 @@ class Matcher:
 
 
 class Place:
-    def __init__(self, campus: str, idx: int):
+    def __init__(self, campus: str, idx: int, log_func: Callable):
         self.campus = campus
         self.idx = idx
         self.max_index_dict = {
             'west': 8,
             'east': 6,
             'middle': 14,
-            'high_tech': 12
+            'hightech': 12
         }
         self.index_untried = None
+        self.log = log_func
 
     @staticmethod
     def idx_list(num: int, pop_idx: int):
@@ -164,7 +177,7 @@ class Place:
         try:
             max_idx = self.max_index_dict[self.campus]
         except KeyError:
-            raise KeyError("Right now only support `west`, `east`, `middle`, and `high_tech` for @param `campus`.")
+            raise KeyError("Right now only support `west`, `east`, `middle`, and `hightech` for @param `campus`.")
         if not self.idx <= max_idx:
             self.idx = 1
         self.index_untried = self.idx_list(max_idx, self.idx)
@@ -172,11 +185,11 @@ class Place:
     def update(self):
         self.idx = random.choice(self.index_untried)
         self.index_untried.remove(self.idx)
-        print(f'[{AutoSnatch.now()}] Trying court No.{self.idx}...')
+        self.log(f'[{AutoSnatch.now()}] Trying court No.{self.idx}...')
 
 
 class AutoSnatch:
-    def __init__(self, win, coord, companion, campus, today_or_tomorrow, index, start_time, num, stake_out):
+    def __init__(self, win, coord, companion, campus, today_or_tomorrow, index, start_time, num, stake_out, log_func: Callable):
         super().__init__()
         self.win = win
         self.c = coord
@@ -185,9 +198,10 @@ class AutoSnatch:
         self.m = Matcher(win)
         self.num = num
         self.stake_out = stake_out
-        self.campus = Place(campus, index)
+        self.campus = Place(campus, index, log_func)
         self.campus.initialize()
         self.find_companion_coord(companion)
+        self.log = log_func
 
     @staticmethod
     def now() -> str:
@@ -209,27 +223,28 @@ class AutoSnatch:
         """
         if self.tot == 'tomorrow':
             if not self.check_time():
-                print(f'[{self.now()}] Waiting for 21:00!')
+                self.log(f'Waiting for 21:00!')
                 return False
-        print(f'[{self.now()}] Snatching the No.{self.campus.idx} court '
+        self.log(f'Snatching the No.{self.campus.idx} court '
               f'starting at {self.start_time[:-2]}:{self.start_time[-2:]} for {self.tot}...')
 
         not_stop = True
         while not_stop:
             # click 'click appointment'
-            print(f'[{self.now()}] Refreshing the page...')
+            self.log(f'Refreshing the page...')
             pyautogui.click(x=self.c['click_appointment'][0], y=self.c['click_appointment'][1])
             time.sleep(0.1)
             while True:
                 pyautogui.click(x=self.c[self.campus.campus][0], y=self.c[self.campus.campus][1])
                 if self.m.color(self.c[self.campus.campus + '_check'][0], self.c[self.campus.campus + '_check'][1]):
-                    print(f'[{self.now()}] Switched to {self.campus.campus } campus.')
-                    time.sleep(0.1)
+                    self.log(f'Switched to {self.campus.campus } campus.')
+                    time.sleep(0.5)
                     pyautogui.click(x=self.c['companion'][0], y=self.c['companion'][1])
+                    time.sleep(0.2)
                     # while True:
                     #     time.sleep(0.5)
                     #     if self.m.color(self.c['companion_check'][0], self.c['companion_check'][1]):
-                    #         print(f'[{self.now()}] The selected companion is locked.')
+                    #         self.log(f'The selected companion is locked.')
                     #         break
                     break
 
@@ -237,7 +252,7 @@ class AutoSnatch:
             if self.tot == 'today':
                 not_stop = False
             while self.tot == 'tomorrow':
-                print(f'[{self.now()}] Switching to `tomorrow`...')
+                self.log(f'Switching to `tomorrow`...')
                 pyautogui.click(self.c['tomorrow'][0], self.c['tomorrow'][1])
                 if self.m.color(self.c['tomorrow_check'][0], self.c['tomorrow_check'][1]):
                     not_stop = False
@@ -298,7 +313,7 @@ class AutoSnatch:
     def index2x(self, index: int) -> tuple[int, int]:
         bench_index = 1
         max_index = self.campus.max_index_dict[self.campus.campus]
-        max_n = max_index - 7
+        max_n = max(max_index - 7, 0)
         max_s = 49.5 * max_n - (1 - (-1) ** max_n) / 4
         max_q = divmod(max_s, UNIT_SCROLL_DISTANCE)[0]
         n = index - bench_index
@@ -314,37 +329,38 @@ class AutoSnatch:
         """
         Select aimed blocks and submit.
         """
-        print(f'[{self.now()}] Locating time blocks ...')
+        self.log(f'Locating time blocks ...')
         # x = 1140  # east audience
         # x = 1064  # east 6
         # y = 947 - 42
         mouse = Controller()
         # move to start block
         mouse.position = (x, y)
+        time.sleep(0.2)
         mouse.scroll(x_scroll, -y_scroll)
-        time.sleep(0.5)
+        time.sleep(0.2)
         if self.stake_out:
             time.sleep(0.5)
             if not self.m.color(Coordinates.to_relative((x - 5, y - 5)), (255, 255, 255)):
                 return False
 
-        print(f'[{self.now()}] Selecting ...')
+        self.log(f'Selecting ...')
         # click start block
         mouse.click(Button.left, 1)
-        time.sleep(0.5)
+        time.sleep(0.2)
         # mouse.click(Button.left, 1)
         # time.sleep(0.1)
         # mouse.click(Button.left, 1)
 
         # click end block
         mouse.position = (x, y + max(min(self.num - 1, 5), 1) * BLOCK_DISTANCE)
-        time.sleep(0.1)
+        time.sleep(0.2)
         mouse.click(Button.left, 1)
-        time.sleep(0.5)
+        time.sleep(0.2)
         # mouse.click(Button.left, 1)
         # time.sleep(0.1)
 
-        print(f'[{self.now()}] Submitting ...')
+        self.log(f'Submitting ...')
         mouse.position = self.c['submit_auto']  # auto locate the submit button
         # mouse.position = coord['submit_test']
         mouse.click(Button.left, 1)
@@ -368,58 +384,56 @@ class AutoSnatch:
                 self.c['companion_check'][1]
             )
 
-    def __call__(self):
+    def __call__(self) -> bool:
         # self.tot_time_conversion()
         y_scroll, y_coord = self.time2y(self.start_time)  # calculating the corresponding scroll number and y_coord
-
-        cheat = True
-        while cheat:
-            start_time = time.perf_counter()
-            # todo: self.shift is not updated for every loop || fixed √
-            # x_coord = self.campus.x_bench + (self.campus.idx - 1) * BLOCK_DISTANCE  # locate the index
-            x_scroll, x_coord = self.index2x(self.campus.idx)
-            if self.refresh():
-                time.sleep(0.1)
-                self.c['submit_auto'] = self.c.to_absolute(self.find_submit_coord())
-                result = self.locate_patch_and_select(x_scroll, x_coord, y_scroll, y_coord)
-                while result:
-                    time.sleep(0.5)
-                    if (
-                            self.m.color(self.c['tip_check'][0], self.c['tip_check'][1])
-                    ):
-                        print(f'[{self.now()}] Detected grey tips!')
-                        try:
-                            self.campus.update()
-                        except Exception:
-                            cheat = False
-                            print(f'[{self.now()}] Try other time blocks.')
-                        break
-                    if not self.m.color(self.c['place_intro_check'][0], self.c['place_intro_check'][1]):
-                        cheat = False
-                        end_time = time.perf_counter()
-                        elapsed_time = end_time - start_time
-                        print(f'[{self.now()}] Target time block is locked successfully within {elapsed_time:.3f} sec!')
-                        break
-                    if (
-                            self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) or
-                            self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])
-                    ):
-                        print(f'[{self.now()}] Your account is banned, or the selected blocks have been locked by others,'
-                              f'or the locked companion is occupied.')
-                        while True:
-                            pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
-                            time.sleep(0.1)
-                            pyautogui.leftClick(x=self.c['preempted'][0], y=self.c['preempted'][1])
-                            if (not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) and
-                            not self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])):
-                                time.sleep(0.5)
-                                break
-                        try:
-                            self.campus.update()
-                        except Exception:
-                            cheat = False
-                            print(f'[{self.now()}] Try other time blocks.')
-                        break
+        start_time = time.perf_counter()
+        # todo: self.shift is not updated for every loop || fixed √
+        # x_coord = self.campus.x_bench + (self.campus.idx - 1) * BLOCK_DISTANCE  # locate the index
+        x_scroll, x_coord = self.index2x(self.campus.idx)
+        if self.refresh():
+            time.sleep(0.1)
+            self.c['submit_auto'] = self.c.to_absolute(self.find_submit_coord())
+            result = self.locate_patch_and_select(x_scroll, x_coord, y_scroll, y_coord)
+            while result:
+                time.sleep(0.5)
+                if (
+                        self.m.color(self.c['tip_check'][0], self.c['tip_check'][1])
+                ):
+                    self.log(f'Detected grey tips!')
+                    try:
+                        self.campus.update()
+                    except Exception:
+                        self.log(f'Try other time blocks.')
+                        return True
+                    break
+                if not self.m.color(self.c['place_intro_check'][0], self.c['place_intro_check'][1]):
+                    self.stop_flag = True
+                    end_time = time.perf_counter()
+                    elapsed_time = end_time - start_time
+                    self.log(f'Target time block is locked successfully within {elapsed_time:.3f} sec!')
+                    return True
+                if (
+                        self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) or
+                        self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])
+                ):
+                    self.log(f'Your account is banned, or the selected blocks have been locked by others,'
+                          f'or the locked companion is occupied.')
+                    while True:
+                        pyautogui.leftClick(x=self.c['notice'][0], y=self.c['notice'][1])
+                        time.sleep(0.1)
+                        pyautogui.leftClick(x=self.c['preempted'][0], y=self.c['preempted'][1])
+                        if (not self.m.color(self.c['notice_check'][0], self.c['notice_check'][1]) and
+                        not self.m.color(self.c['preempted_check'][0], self.c['preempted_check'][1])):
+                            time.sleep(0.5)
+                            break
+                    try:
+                        self.campus.update()
+                    except Exception:
+                        self.log(f'Try other time blocks.')
+                        return True
+                    break
+        return False
 
 
 def main(
@@ -435,7 +449,7 @@ def main(
     # get screen resolution
     # w, h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
     # scale = get_dpi_scaling()
-    # print(w, h, scale)
+    # self.log(w, h, scale)
     # ! Calculating new coordinates based on resolution and scaling factor is unreliable.
 
     # get handle
@@ -454,10 +468,12 @@ def main(
         time.sleep(0.1)
         pyautogui.leftClick(800, 64)
 
-    auto_snatch = AutoSnatch(window, coord, companion, campus, today_or_tomorrow, index, start_time, num, stake_out)
+    auto_snatch = AutoSnatch(window, coord, companion, campus, today_or_tomorrow, index, start_time, num, stake_out, print)
 
     # grabbing
-    auto_snatch()
+    cheat = True
+    while cheat:
+        cheat = auto_snatch()
 
 
 def get_coordinates():
@@ -474,8 +490,8 @@ def get_coordinates():
         'middle_check': [(940, 360), (116, 183, 140)],
         'west': (1014, 360),
         'west_check': [(1063, 360), (116, 183, 140)],
-        'high_tech': (1146, 360),
-        'high_tech_check': [(1210, 360), (116, 183, 140)],
+        'hightech': (1146, 360),
+        'hightech_check': [(1210, 360), (116, 183, 140)],
         # date
         'today': (846, 422),
         'tomorrow': (1111, 424),
@@ -488,9 +504,9 @@ def get_coordinates():
         'tip_check': [(1060, 1635), (76, 76, 76)],  # at least/most 2/6 blocks or at leat 1 companion
         # new
         'west_lt': (774, 530),  # center (x,y) of west left top block
-        'east_lt': (716, 530),
+        'east_lt': (816, 530),
         'middle_lt': (774, 530),
-        'high_tech_lt': (774, 530),
+        'hightech_lt': (774, 530),
     })
 
 

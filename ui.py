@@ -1,13 +1,54 @@
+# local
 import sys
-from PySide2.QtCore import Qt
+# import inspect
+# import threading
+
+# keyboard
+import keyboard
+
+# pyside2
+from PySide2.QtCore import Qt, QThread, Signal
 from PySide2.QtGui import QFont, QColor
 from PySide2.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QTabBar, QPushButton, QGridLayout, QLabel, QFrame, QButtonGroup,
-                               QTextBrowser, QScrollArea)
+                               QTextBrowser, QScrollArea, QCheckBox)
 from PySide2.QtWidgets import QGraphicsDropShadowEffect
 from PySide2.QtCore import QCoreApplication
 
-import ustc_badminton_advanced
+# runtime
+from ustc_badminton_advanced import *
+
+
+class Lockable:
+    def __init__(self, var_type: type):
+        self._var_type = var_type
+        self._lock = None
+
+    def __set_name__(self, owner, name):
+        self._name = name
+        self._lock_name = f'_{self._name}_lock'
+
+    def __set__(self, instance, value):
+        # stack = inspect.stack()
+        # caller_name = stack[1].function
+        # print(f'Lockable __set__ was called @{caller_name}')
+        assert isinstance(value, self._var_type)
+        if not hasattr(instance, self._lock_name):
+            setattr(instance, self._lock_name, False)
+        if not instance.__dict__[self._lock_name]:
+            setattr(instance, f'_{self._name}', value)
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return getattr(instance, f'_{self._name}')
+
+    def set_lock(self, instance):
+        instance.__dict__[self._lock_name] = True
+
+    def set_unlock(self, instance):
+        instance.__dict__[self._lock_name] = False
+
 
 class RoundedButton(QPushButton):
     def __init__(self, text, parent=None):
@@ -56,7 +97,7 @@ class CampusTabBar(QTabBar):
                 background-color: #e9ecef;
                 border: 2px solid #dee2e6;
                 border-radius: 6px;
-                padding: 4px 12px;
+                padding: 2px 10px;
                 margin-right: 4px;
                 color: #495057;
                 font-weight: bold;
@@ -131,7 +172,7 @@ class TimeBlock(QFrame):
                 # 直接调用主窗口的方法
                 self.main_window.block_clicked(self.row, self.col)
 
-    def setSelected(self, selected):
+    def set_selected(self, selected):
         self.selected = selected
         self.update_style()
 
@@ -233,11 +274,15 @@ class SubmitButton(QPushButton):
         self.update_style()
 
 
+# noinspection PyUnresolvedReferences
 class SportsFieldBooking(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sports Field Booking System")
         self.setFixedSize(700, 420)
+
+        # 窗口置顶
+        self.setWindowFlag(Qt.WindowStaysOnTopHint)
 
         # 添加锁定状态标志
         self.is_locked = False
@@ -253,9 +298,15 @@ class SportsFieldBooking(QMainWindow):
                 background-color: #f8f9fa;
             }
         """)
+        self.lurking_checkbox = None
         self.log_browser = None
+        self.window = None
+
+        self.worker_thread = None
 
         self.init_ui()
+
+        self.cheat = True
 
     def init_ui(self):
         central_widget = QWidget()
@@ -364,7 +415,7 @@ class SportsFieldBooking(QMainWindow):
 
         for i in range(2):
             for j in range(3):
-                block = CompanionBlock(f"({i + 1},{j + 1})", (i + 1, j + 1))
+                block = CompanionBlock(f"({j + 1}, {i + 1})", (j + 1, i + 1))
                 self.companion_grid.addWidget(block, i, j)
                 self.companion_blocks.append(block)
                 self.companion_group.addButton(block)
@@ -380,17 +431,36 @@ class SportsFieldBooking(QMainWindow):
         # right_container.addStretch()
 
         # 日志区
-        log_label = QLabel("Operation Log:")
-        log_label.setStyleSheet(
-            "font-weight: bold; color: #495057; font-size: 14px; margin-bottom: 5px;")
+        self.lurking_checkbox = QCheckBox("Lurking reserved but unconfirmed")
+        self.lurking_checkbox.setChecked(False)
+        self.lurking_checkbox.setStyleSheet("""
+            QCheckBox {
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #f8f9fa,
+                    stop:1 #e9ecef
+                );
+                border: none;
+                border-radius: 6px;
+                padding: 6px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 11px;
+                color: #495057;
+            }
+            QCheckBox::indicator {
+                width: 8px;
+                height: 8px;
+                border: 2px solid #495057;
+                border-radius: 3px;
+                background-color: #dee2e6;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff69b4;
+                border: 2px solid #495057;
+            }
+        """)
         self.log_browser = QTextBrowser()
         self.log_browser.setMaximumHeight(260)
-        # shadow
-        # shadow = QGraphicsDropShadowEffect()
-        # shadow.setBlurRadius(12)  # 模糊半径
-        # shadow.setOffset(5, 5)  # x, y 偏移
-        # shadow.setColor(QColor(0, 0, 0, 80))  # 阴影颜色，最后一位是透明度
-        # self.log_browser.setGraphicsEffect(shadow)
 
         self.log_browser.setStyleSheet("""
             QTextBrowser {
@@ -414,7 +484,7 @@ class SportsFieldBooking(QMainWindow):
         self.submit_btn.setMinimumWidth(200)
 
         # 把日志和提交放到底部（垂直）
-        right_container.addWidget(log_label)
+        right_container.addWidget(self.lurking_checkbox)
         right_container.addWidget(self.log_browser)
         right_container.addWidget(self.submit_btn)
 
@@ -432,6 +502,28 @@ class SportsFieldBooking(QMainWindow):
 
         # 设置默认值
         self.set_default_values()
+
+        self.window = self.get_win()
+
+    def get_win(self):
+        # get handle
+        hwnd = win32gui.FindWindow(None, '中国科大体育运动预约管理')
+        l, t, r, b = win32gui.GetWindowRect(hwnd)
+
+        # win32gui.MoveWindow(hwnd, BIAS[0], BIAS[1], r - l, b - t, True)  # not working at all
+
+        # connect window
+        app = Application().connect(handle=hwnd)
+        window = app.window(handle=hwnd)
+        window.set_focus()
+
+        if l > 0:
+            pyautogui.hotkey('win', 'left')
+            time.sleep(0.1)
+            pyautogui.leftClick(800, 64)
+
+        self.log_message('USTC Badminton mini program connected')
+        return window
 
     def lock_controls(self):
         """锁定所有控件"""
@@ -500,7 +592,8 @@ class SportsFieldBooking(QMainWindow):
                 self.log_browser.verticalScrollBar().maximum()
             )
 
-    def generate_time_slots(self):
+    @staticmethod
+    def generate_time_slots():
         """生成时间槽：8:00-22:15，每15分钟一个"""
         slots = []
         for hour in range(8, 22):
@@ -560,12 +653,12 @@ class SportsFieldBooking(QMainWindow):
 
         if block.selected:
             # 取消选择
-            block.setSelected(False)
+            block.set_selected(False)
             if block in self.selected_blocks:
                 self.selected_blocks.remove(block)
         else:
             # 选择当前块
-            block.setSelected(True)
+            block.set_selected(True)
             self.selected_blocks.append(block)
 
             # 自动选择同一列中连续的块
@@ -600,7 +693,7 @@ class SportsFieldBooking(QMainWindow):
         # 保留前6个，取消选择其他的
         for i, block in enumerate(selected_in_column):
             if i >= 6:
-                block.setSelected(False)
+                block.set_selected(False)
                 if block in self.selected_blocks:
                     self.selected_blocks.remove(block)
 
@@ -610,7 +703,7 @@ class SportsFieldBooking(QMainWindow):
         """清除指定列的所有选择"""
         for block in self.time_blocks[col]:
             if block.selected:
-                block.setSelected(False)
+                block.set_selected(False)
                 if block in self.selected_blocks:
                     self.selected_blocks.remove(block)
 
@@ -629,7 +722,7 @@ class SportsFieldBooking(QMainWindow):
         for row in range(min_row, max_row + 1):
             block = self.time_blocks[col][row]
             if not block.selected:
-                block.setSelected(True)
+                block.set_selected(True)
                 if block not in self.selected_blocks:
                     self.selected_blocks.append(block)
 
@@ -696,19 +789,52 @@ class SportsFieldBooking(QMainWindow):
                     self.log_message(f"Companion position selected: {companion_coord}")
                     break
 
-            # 调用用户函数
-            self.run(campus, date, field_number, start_time, end_time, companion_coord)
+            lurking = self.lurking_checkbox.isChecked()
 
             # 成功提交后变为停止状态并锁定所有控件
+            self.cheating = True
             self.submit_btn.set_stop_state()
             self.lock_controls()
+
+            # 调用用户函数
+            self.log_message(f"Campus: {campus}, Date: {date}")  # 英文
+            self.log_message(f"Field: {field_number}, Time: {start_time} - {end_time}")  # 英文
+            self.log_message(f"Companion position: {companion_coord}")  #
+            self.log_message(f"Lurking: {lurking}")
+            self.log_message("Processing reservation...")  # 英文
+
+            self.worker_thread = SnatchWorker(
+                self.get_win(),
+                get_coordinates(),
+                companion_coord,
+                campus.lower(),
+                date.lower(),
+                field_number,
+                start_time.replace(':', ''),
+                len(self.selected_blocks),
+                lurking,
+                cheat=self.cheat
+            )
+            self.worker_thread.log_signal.connect(self.log_message)
+            self.worker_thread.finished_signal.connect(self.on_worker_finished)
+            self.worker_thread.start()
+
+            # 在处理的关键步骤添加日志
+            # self.log_message("Reservation successful!")  # 英文
         else:
+            self.worker_thread.stop()
             # 停止状态
             self.log_message("Stopping reservation process...")  # 英文
             # 恢复为提交状态并解锁所有控件
             self.submit_btn.set_submit_state()
             self.unlock_controls()
             self.log_message("Reservation process stopped")  # 英文
+
+    def on_worker_finished(self):
+        """当工作线程完成时，恢复按钮状态并解锁控件"""
+        self.submit_btn.set_submit_state()  # 恢复为 Submit 按钮
+        self.unlock_controls()  # 解锁控件
+        self.log_message("Reservation process completed.")  # 英文
 
     def check_conditions(self):
         """检查提交条件"""
@@ -744,16 +870,32 @@ class SportsFieldBooking(QMainWindow):
 
         return True, "All conditions satisfied"
 
-    def run(self, campus, date, field_number, start_time, end_time, companion_coord):
-        self.log_message(f"Campus: {campus}, Date: {date}")  # 英文
-        self.log_message(f"Field: {field_number}, Time: {start_time} - {end_time}")  # 英文
-        self.log_message(f"Companion position: {companion_coord}")  # 英文
-        self.log_message("Processing reservation...")  # 英文
 
-        # 您的业务逻辑
+class SnatchWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal()
+    cheat = Lockable(bool)
 
-        # 在处理的关键步骤添加日志
-        self.log_message("Reservation successful!")  # 英文
+    def __init__(self, *args, cheat: bool):
+        super().__init__()
+        self.cheat = cheat
+        self.auto_snatch = AutoSnatch(*args, log_func=self.log_signal.emit)
+        self.hot_key = 'ctrl+alt+shift+p'
+        self.log_signal.emit(f"Press `{self.hot_key}` to stop the reservation")
+        keyboard.add_hotkey(self.hot_key, self.stop)
+
+    def stop(self):
+        self.cheat = False
+        type(self).cheat.set_lock(self)  # === SnatchWorker.cheat
+        self.log_signal.emit(f"Cheat mode manually stopped via {self.hot_key}")
+
+    def run(self):
+        self.log_signal.emit("Reservation started...")  # call the `func` connected by `connect` method
+        while self.cheat:
+            self.cheat = not self.auto_snatch()
+        type(self).cheat.set_unlock(self)
+        self.log_signal.emit("Reservation finished")
+        self.finished_signal.emit()
 
 
 def main():
