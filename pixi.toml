@@ -1,5 +1,5 @@
 [workspace]
-authors = ["Ahuiforever <king_wedo@163.com>"]
+authors = ["Awenforever <king_wedo@163.com>"]
 channels = ["conda-forge"]
 name = "USTCBadminton"
 platforms = ["win-64"]
